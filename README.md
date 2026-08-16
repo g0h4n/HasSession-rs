@@ -2,7 +2,7 @@
 
 <hr />
 
-`HasSession-rs` is a too to enumerate Windows sessions across one or more hosts via **three native RPC interfaces**,
+`HasSession-rs` is a tool to enumerate Windows sessions across one or more hosts via **three native RPC interfaces**,
 correlate every observation into a BloodHound `HasSession`-like JSON report.
 
 Built entirely on **[icedracon/dcerpc](https://github.com/icedracon/dcerpc)**'s pure-Rust DCE/RPC stack.
