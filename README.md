@@ -1,6 +1,8 @@
-# HasSession-rs
+<h1 align="center">HasSession-rs</h1>
 
-Enumerate Windows sessions across one or more hosts via **three native RPC interfaces**,
+<hr />
+
+`HasSession-rs` is a too to enumerate Windows sessions across one or more hosts via **three native RPC interfaces**,
 correlate every observation into a BloodHound `HasSession`-like JSON report.
 
 Built entirely on **[icedracon/dcerpc](https://github.com/icedracon/dcerpc)**'s pure-Rust DCE/RPC stack.
@@ -114,6 +116,12 @@ Flags: `-q` silences all log output (stdout stays JSON-only). Debug goes to
   }
 }
 ```
+
+<p align="center">
+    <picture>
+        <img src="./img/demo-hashsession-rs.gif" alt="hassession-rs demo" />
+    </picture>
+</p>
 
 ---
 
