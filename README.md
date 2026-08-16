@@ -38,7 +38,7 @@ three and correlate them for the same reason.
 | | **NetSessionEnum** | **NetWkstaUserEnum** | **Remote Registry (HKU)** |
 |---|---|---|---|
 | **RPC interface** | SRVSVC (MS-SRVS) | WKSSVC (MS-WKST) | WINREG / RRP (MS-RRP) |
-| **`dcerpc` module** | `dcerpc::srvsvc` | `dcerpc::wkssvc` ✨ | `dcerpc::rrp` ✨ |
+| **`dcerpc` module** | `dcerpc::srvsvc` | `dcerpc::wkssvc` | `dcerpc::rrp` |
 | **Named pipe** | `\srvsvc` | `\wkssvc` | `\winreg` |
 | **Operation** | `NetrSessionEnum` opnum 12, level 10 | `NetrWkstaUserEnum` opnum 2, level 1 | `OpenHKU` + `BaseRegEnumKey` on `HKEY_USERS` |
 | **What it sees** | Inbound **SMB sessions**: client IP + user | Users with an **active logon context** on the machine | SIDs of **loaded profile hives** (NTUSER.DAT mounted) |
@@ -126,5 +126,5 @@ The three RPC interfaces used here are all now **native in `dcerpc`**:
 | Module | Interface | Source |
 |---|---|---|
 | [`dcerpc::srvsvc`](https://github.com/icedracon/dcerpc/blob/main/src/srvsvc.rs) | SRVSVC / `NetrSessionEnum` | original |
-| [`dcerpc::wkssvc`](https://github.com/icedracon/dcerpc/blob/main/src/wkssvc.rs) | WKSSVC / `NetrWkstaUserEnum` | added ✨ |
-| [`dcerpc::rrp`](https://github.com/icedracon/dcerpc/blob/main/src/rrp.rs) | WINREG / `OpenHKU` + `BaseRegEnumKey` | extended ✨ |
+| [`dcerpc::wkssvc`](https://github.com/icedracon/dcerpc/blob/main/src/wkssvc.rs) | WKSSVC / `NetrWkstaUserEnum` | added |
+| [`dcerpc::rrp`](https://github.com/icedracon/dcerpc/blob/main/src/rrp.rs) | WINREG / `OpenHKU` + `BaseRegEnumKey` | extended |
