@@ -1,0 +1,52 @@
+[package]
+authors = ["g0h4n <g0h4n_0@protonmail.com>"]
+name        = "hassession-rs"
+version     = "0.1.0"
+edition     = "2021"
+description = "Enumerate Windows logged-on users via RPC (SRVSVC/WKSSVC/WINREG) and correlate into a HasSession-like view"
+keywords = ["enum", "pentest", "rpc", "sessions", "hassession"]
+repository = "https://github.com/g0h4n/HasSession-rs"
+homepage = "https://github.com/g0h4n/HasSession-rs"
+documentation = "https://docs.rs/hassession-rs/"
+license = "MIT"
+readme = "README.md"
+rust-version = "1.85"
+
+[dependencies]
+dcerpc      = { path = "../dcerpc", version = "0.2.3" }  # SRVSVC client + raw transport/ndr/rrp reused in src/wkssvc.rs & src/winreg.rs
+smb2-client = "0.2"     # SMB2 transport (NTLMv2 auth) under every RPC pipe
+
+# ─── serialization ───────────────────────────────────────────────────────────
+serde      = { version = "1", features = ["derive"] }   # #[derive(Serialize)]
+serde_json = "1"                                         # pretty JSON output
+
+# ─── async runtime ───────────────────────────────────────────────────────────
+# "full" enables: rt-multi-thread, io, net, time, fs, macros (#[tokio::main]).
+tokio = { version = "1", features = ["full"] }
+
+# ─── error handling ──────────────────────────────────────────────────────────
+anyhow = "1"    # context(), ? propagation, best-effort error capture per host
+
+# ─── CLI argument parsing (modeled on RustHound-CE's args.rs style) ──────────
+# https://github.com/g0h4n/RustHound-CE/blob/main/src/args.rs
+clap = { version = "4.6", features = ["derive"] }
+
+# ─── Logging (LevelFilter used in Options.verbose) ───────────────────────────
+log = "0.4"
+
+# ─── Logging backend (mirrors RustHound-CE's exact setup) ────────────────────
+# ref: https://github.com/g0h4n/RustHound-CE/blob/main/Cargo.toml
+env_logger = "0.11"   # Builder::new().filter(crate, level).filter_level(Error).init()
+colored    = "3.1"    # [*] / [DEBUG] / [!] color tags in the custom format
+
+[[bin]]
+name = "HasSession-rs"
+path = "src/main.rs"
+
+
+[profile.release]
+opt-level = "z"
+lto = true
+strip = true
+codegen-units = 1
+panic = "abort"
