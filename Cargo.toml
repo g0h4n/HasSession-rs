@@ -1,7 +1,7 @@
 [package]
 authors = ["g0h4n <g0h4n_0@protonmail.com>"]
 name        = "hassession-rs"
-version     = "0.1.0"
+version     = "0.1.1"
 edition     = "2021"
 description = "Enumerate Windows logged-on users via RPC (SRVSVC/WKSSVC/WINREG) and correlate into a HasSession-like view"
 keywords = ["enum", "pentest", "rpc", "sessions", "hassession"]

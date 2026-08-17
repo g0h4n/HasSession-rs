@@ -16,7 +16,8 @@
 //!
 //! Authorized use only: hosts you administer or are explicitly authorized to audit.
 //!
-//!   HasSession-rs -d CORP -u alice -p 'P@ssw0rd' -t dc01.corp.local
+//!   HasSession-rs -d CORP -u alice -p 'P@ssw0rd'               -t dc01.corp.local
+//!   HasSession-rs -d CORP -u alice -H :31d6cfe0d16ae931b73c59d7e0c089c0 -t dc01
 
 mod args;
 
@@ -71,7 +72,7 @@ struct HostFindings {
     errors:       Vec<String>,
 }
 
-// JSON output types 
+// JSON output types
 
 #[derive(Serialize)]
 struct SessionEdge {
@@ -98,8 +99,15 @@ async fn main() -> Result<()> {
     let opts = extract_args();
     init_logger(opts.verbose, opts.quiet);
 
+    // Auth method display
+    let auth_label = match &opts.nt_hash {
+        Some(h) => format!("NTLMv2 PTH [{:02x}{:02x}{:02x}…]", h[0], h[1], h[2]),
+        None    => "NTLMv2 password".to_string(),
+    };
+
     info!("Domain        : {}", opts.domain.bold());
     info!("User          : {}", opts.username.bold());
+    info!("Auth          : {}", auth_label.bold());
     info!("Targets       : {}", opts.targets.len());
     info!("Method        : {:?}", opts.collection_method);
     info!("Timeout       : {}s", opts.timeout);
@@ -109,8 +117,11 @@ async fn main() -> Result<()> {
     let mut all: Vec<HostFindings> = Vec::new();
     for host in &opts.targets {
         debug!("==================== {host} ====================");
-        all.push(enumerate_host(host, &opts.domain, &opts.username, &opts.password,
-                                &opts.collection_method, opts.timeout).await);
+        all.push(enumerate_host(
+            host, &opts.domain, &opts.username, &opts.password,
+            opts.nt_hash.as_ref(),
+            &opts.collection_method, opts.timeout,
+        ).await);
     }
 
     // Correlate
@@ -182,8 +193,11 @@ async fn main() -> Result<()> {
 
 // Per-host enumeration
 
-async fn enumerate_host(host: &str, domain: &str, user: &str, password: &str,
-                        method: &args::CollectionMethod, _timeout: u64) -> HostFindings {
+async fn enumerate_host(
+    host: &str, domain: &str, user: &str, password: &str,
+    nt_hash: Option<&[u8; 16]>,
+    method: &args::CollectionMethod, _timeout: u64,
+) -> HostFindings {
     let mut f = HostFindings { host: host.to_string(),
         smb_sessions: Vec::new(), logged_on: Vec::new(),
         registry: Vec::new(), errors: Vec::new() };
@@ -198,13 +212,25 @@ async fn enumerate_host(host: &str, domain: &str, user: &str, password: &str,
         }
     };
 
-    // SESSION_SETUP (NTLMv2)
-    debug!("[{host}] SESSION_SETUP NTLMv2 ({domain}\\{user}) ...");
-    if let Err(e) = smb.login(host, domain, user, password).await {
-        let m = format!("{host} auth: {e}");
-        error!("{m}"); f.errors.push(m); return f;
+    // SESSION_SETUP — NTLMv2 password OR pass-the-hash
+    match nt_hash {
+        Some(hash) => {
+            debug!("[{host}] SESSION_SETUP NTLMv2 PTH ({domain}\\{user}) ...");
+            if let Err(e) = smb.login_hash(host, domain, user, hash).await {
+                let m = format!("{host} auth (PTH): {e}");
+                error!("{m}"); f.errors.push(m); return f;
+            }
+            info!("[{host}] Auth validated - NTLMv2 PTH for {}\\{}", domain.bold(), user.bold());
+        }
+        None => {
+            debug!("[{host}] SESSION_SETUP NTLMv2 ({domain}\\{user}) ...");
+            if let Err(e) = smb.login(host, domain, user, password).await {
+                let m = format!("{host} auth: {e}");
+                error!("{m}"); f.errors.push(m); return f;
+            }
+            info!("[{host}] Auth validated - NTLMv2 session for {}\\{}", domain.bold(), user.bold());
+        }
     }
-    info!("[{host}] Auth validated - NTLMv2 session for {}\\{}", domain.bold(), user.bold());
 
     // TREE_CONNECT IPC$
     trace!("[{host}] TREE_CONNECT \\\\{host}\\IPC$ ...");

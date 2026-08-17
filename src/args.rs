@@ -52,8 +52,11 @@ pub struct Options {
     pub domain: String,
     /// Username for SMB auth (e.g. alice or CORP\alice).
     pub username: String,
-    /// Password for SMB auth.
+    /// Password for SMB auth (empty when --hashes is used).
     pub password: String,
+    /// Parsed 16-byte NT hash for pass-the-hash — None when --password is used.
+    /// Accepts NTHASH | :NTHASH | LMHASH:NTHASH (mirrors RustHound-CE).
+    pub nt_hash: Option<[u8; 16]>,
 
     // Targets
     /// List of hosts to scan (from -t and/or --targets-file).
@@ -89,7 +92,7 @@ fn cli() -> Command {
              Built on icedracon's pure-Rust DCE/RPC stack (dcerpc + smb2-client).",
         ))
         .override_usage(
-            "HasSession-rs -d <DOMAIN> -u <USER> -p <PASS> -t <HOST[,HOST]> [OPTIONS]"
+            "HasSession-rs -d <DOMAIN> -u <USER> (-p <PASS> | -H <HASH>) -t <HOST[,HOST]> [OPTIONS]"
         )
         .author("")
 
@@ -128,14 +131,35 @@ fn cli() -> Command {
             Arg::new("password")
                 .short('p')
                 .long("password")
-                .help("Password for SMB / RPC authentication")
+                .help("Password for SMB / RPC authentication (use -H for pass-the-hash)")
                 .long_help(
                     "Plaintext password — used only to compute the NTLMv2 response;\n\
                      it never transits the network in cleartext.\n\
-                     Tip: wrap in single quotes to avoid shell expansion: 'P@ssw0rd!'"
+                     Tip: wrap in single quotes to avoid shell expansion: 'P@ssw0rd!'\n\
+                     Mutually exclusive with --hashes (-H)."
                 )
-                .required(true)
+                .required(false)
                 .value_name("PASS")
+                .value_parser(value_parser!(String)),
+        )
+        .arg(
+            Arg::new("hashes")
+                .short('H')
+                .long("hashes")
+                .help("NT hash for pass-the-hash authentication (NTLM), accept [NTHASH, :NTHASH, LMHASH:NTHASH]")
+                .long_help(
+                    "Authenticate with the raw NT hash — no plaintext password needed.\n\
+                     The hash is plugged directly into the NTLMv2 authenticate_hash() step.\n\n\
+                     Accepted formats (mirrors RustHound-CE):\n  \
+                       NTHASH                  — 32 hex chars, e.g. aad3b435b51404ee...\n  \
+                       :NTHASH                 — colon prefix, LM part empty\n  \
+                       LMHASH:NTHASH           — full pair, LM part is ignored\n\n\
+                     Example: -H aad3b435b51404eeaad3b435b51404ee\n\
+                     Example: -H :31d6cfe0d16ae931b73c59d7e0c089c0\n\
+                     ref: https://github.com/g0h4n/RustHound-CE/blob/main/src/ldap.rs"
+                )
+                .required(false)
+                .value_name("HASH")
                 .value_parser(value_parser!(String)),
         )
         .arg(
@@ -271,7 +295,41 @@ fn cli() -> Command {
         )
 }
 
-// Public entry point
+// ─── Hash parsing (mirrors RustHound-CE) ─────────────────────────────────────
+
+/// Parse an NT hash string into a 16-byte array.
+///
+/// Accepted formats (mirrors RustHound-CE's --hashes arg):
+///   NTHASH                  — 32 hex chars
+///   :NTHASH                 — colon prefix, LM part empty
+///   LMHASH:NTHASH           — full pair, LM part ignored
+///
+/// ref: https://github.com/g0h4n/RustHound-CE/blob/main/src/ldap.rs
+pub fn parse_nt_hash(input: &str) -> Result<[u8; 16], String> {
+    let clean = input.trim();
+    // Strip the LM part if present (right side of ':' is the NT hash).
+    let nt = match clean.split_once(':') {
+        Some((_lm, nt)) => nt,
+        None             => clean,
+    };
+    if nt.len() != 32 || !nt.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(format!(
+            "Invalid NT hash '{}': expected exactly 32 hex characters.\n  \
+             Accepted formats: NTHASH | :NTHASH | LMHASH:NTHASH",
+            nt
+        ));
+    }
+    let mut bytes = [0u8; 16];
+    for (i, pair) in nt.as_bytes().chunks(2).enumerate() {
+        // Safety: both bytes are guaranteed ASCII hex by the check above.
+        bytes[i] = u8::from_str_radix(
+            std::str::from_utf8(pair).unwrap(), 16
+        ).unwrap();
+    }
+    Ok(bytes)
+}
+
+// ─── Public entry point ───────────────────────────────────────────────────────
 
 /// Parse `std::env::args()` and return a populated [`Options`].
 /// Calls `clap::Command::get_matches()` which exits with usage on error.
@@ -318,6 +376,31 @@ pub fn extract_args() -> Options {
         std::process::exit(1);
     }
 
+    // ── Authentication: --password XOR --hashes ───────────────────────────
+    let password   = matches.get_one::<String>("password").cloned().unwrap_or_default();
+    let hashes_raw = matches.get_one::<String>("hashes").cloned();
+
+    // Parse --hashes into a raw [u8; 16] if provided.
+    let nt_hash: Option<[u8; 16]> = match &hashes_raw {
+        Some(h) => {
+            match parse_nt_hash(h) {
+                Ok(bytes) => Some(bytes),
+                Err(e)    => { eprintln!("[!] {e}"); std::process::exit(1); }
+            }
+        }
+        None => None,
+    };
+
+    // Must have at least one credential.
+    if nt_hash.is_none() && password.is_empty() {
+        eprintln!(
+            "[!] No credentials provided.\n  \
+             Use -p <PASSWORD> or -H <NTHASH> (pass-the-hash).\n  \
+             Run with --help for usage."
+        );
+        std::process::exit(1);
+    }
+
     // Collection method
     let collection_method =
         match matches.get_one::<String>("collection-method").map(|s| s.as_str()).unwrap_or("All") {
@@ -327,7 +410,7 @@ pub fn extract_args() -> Options {
             _              => CollectionMethod::All,
         };
 
-    // Verbosity 
+    // Verbosity
     let verbose = match matches.get_count("verbose") {
         0 => log::LevelFilter::Info,
         1 => log::LevelFilter::Debug,
@@ -335,9 +418,10 @@ pub fn extract_args() -> Options {
     };
 
     Options {
-        domain: matches.get_one::<String>("domain").unwrap().clone(),
+        domain:   matches.get_one::<String>("domain").unwrap().clone(),
         username: matches.get_one::<String>("username").unwrap().clone(),
-        password: matches.get_one::<String>("password").unwrap().clone(),
+        password,
+        nt_hash,
         targets,
         collection_method,
         timeout: *matches.get_one::<u64>("timeout").unwrap_or(&5),

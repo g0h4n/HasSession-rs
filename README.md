@@ -71,8 +71,11 @@ session - service accounts, `SYSTEM`, and app pools appear too.
 cargo build --release
 ./target/release/HasSession-rs --help
 
-# Single host
+# Single host, username:password
 HasSession-rs -d CORP -u alice -p 'P@ssw0rd' -t dc01.corp.local
+
+# Single host, NT hash for Pass-the-Hash (NTLM)
+HasSession-rs -d CORP -u alice -H :e02bc503339d51f71d913c245d35b50b -t dc01.corp.local
 
 # Multiple hosts (comma-separated + file)
 HasSession-rs -d CORP -u alice -p 'P@ssw0rd' \
