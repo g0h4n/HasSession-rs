@@ -312,7 +312,7 @@ async fn enumerate_host(
     // WINREG
     if method.registry() {
         debug!("[{host}] [WINREG] HKEY_USERS subkey enum (OpenHKU + BaseRegEnumKey) ...");
-        match enum_registry(&mut smb, domain, user, password, host).await {
+        match enum_registry(&mut smb, domain, user, password, nt_hash, host).await {
             Ok(sids) => {
                 info!("[{host}] WINREG - {} loaded profile SID(s)", sids.len());
                 for s in &sids { debug!("[{host}]   SID {}", s.sid.yellow()); }
@@ -345,8 +345,19 @@ async fn enum_wksta(smb: &mut SmbClient) -> Result<(Vec<WkstaUser>, u32)> {
 }
 
 async fn enum_registry(smb: &mut SmbClient, domain: &str, user: &str,
-                        password: &str, host: &str) -> Result<Vec<RegistrySession>> {
-    let mut reg = RegistryClient::connect(smb, domain, user, password, host)
-        .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                        password: &str, nt_hash: Option<&[u8; 16]>, host: &str)
+    -> Result<Vec<RegistrySession>>
+{
+    // RegistryClient::connect does its OWN RPC-level NTLM (bind_sealed) on top
+    // of the SMB session, it needs the hash directly, not a password.
+    // connect_hash() uses bind_sealed_hash() which already exists in transport.
+    let mut reg = match nt_hash {
+        Some(h) => RegistryClient::connect_hash(smb, domain, user, h, host)
+                       .await
+                       .map_err(|e| anyhow::anyhow!("{e}"))?,
+        None    => RegistryClient::connect(smb, domain, user, password, host)
+                       .await
+                       .map_err(|e| anyhow::anyhow!("{e}"))?,
+    };
     reg.logged_on_sids().await.map_err(|e| anyhow::anyhow!("{e}"))
 }
